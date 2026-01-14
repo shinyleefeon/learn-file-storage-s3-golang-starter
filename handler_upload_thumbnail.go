@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"encoding/base64"
+	//"encoding/base64"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
+	"path/filepath"
+	"mime"
+	"os"
+	"bytes"
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +36,8 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
+	
+
 	// TODO: implement the upload here
 	const maxMemory = 10 << 20
 
@@ -47,6 +53,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 	contentType := header.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't parse media type", err)
+		return
+	}
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Invalid file type", fmt.Errorf("unsupported file type: %s", mediaType))
+		return
+	}
 	imageData, err := io.ReadAll(file)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't read file", err)
@@ -61,10 +76,31 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "You are not the owner of this video", fmt.Errorf("user %s is not the owner of video %s", userID, videoID))
 		return
 	}
+	filename := fmt.Sprintf("%s", videoID.String())
+
+	filepath := filepath.Join(cfg.assetsRoot, filename)
+	ext, err := mime.ExtensionsByType(contentType)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get file extension", err)
+		return
+	}
+	filepath += ext[0]
+	filename += ext[0]
 	
-	imageString := base64.StdEncoding.EncodeToString(imageData)
-	dataURL := fmt.Sprintf("data:%s;base64,%s", contentType, imageString)
+	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s", cfg.port, filename)
 	videoData.ThumbnailURL = &dataURL
+	newFile, err := os.Create(filepath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create file", err)
+		return
+	}
+	defer newFile.Close()
+	_, err = io.Copy(newFile, bytes.NewReader(imageData))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't write file", err)
+		return
+	}
+
 
 	cfg.db.UpdateVideo(videoData)
 
