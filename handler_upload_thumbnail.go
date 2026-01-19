@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	//"encoding/base64"
+	"encoding/base64"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 	"path/filepath"
 	"mime"
 	"os"
 	"bytes"
+	"crypto/rand"
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
@@ -76,8 +77,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "You are not the owner of this video", fmt.Errorf("user %s is not the owner of video %s", userID, videoID))
 		return
 	}
-	filename := fmt.Sprintf("%s", videoID.String())
-
+	key := make([]byte, 32)
+	_, err = rand.Read(key)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't generate random key", err)
+		return
+	}
+	filename := base64.RawURLEncoding.EncodeToString(key)
+	
 	filepath := filepath.Join(cfg.assetsRoot, filename)
 	ext, err := mime.ExtensionsByType(contentType)
 	if err != nil {
@@ -100,7 +107,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Couldn't write file", err)
 		return
 	}
-
+	
 
 	cfg.db.UpdateVideo(videoData)
 
