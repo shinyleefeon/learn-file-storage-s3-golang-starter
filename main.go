@@ -29,6 +29,31 @@ type apiConfig struct {
 	s3Client        *s3.Client
 }
 
+// s3CfURL generates a CloudFront URL for a given key
+func s3CfURL(cfDistribution, key string) *string {
+	url := "https://" + cfDistribution + "/" + key
+	return &url
+}
+
+/*func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
+	if video.VideoURL == nil {
+		return video, nil
+	}
+
+	params := strings.Split(*video.VideoURL, ",")
+	if len(params) != 2 {
+		return video, fmt.Errorf("invalid video URL format")
+	}
+	bucket := params[0]
+	key := params[1]
+	signedURL, err := generatePresignedURL(cfg.s3Client, bucket, key, time.Minute*15)
+	if err != nil {
+		return video, fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+	video.VideoURL = &signedURL
+	return video, nil
+}*/
+
 type thumbnail struct {
 	data      []byte
 	mediaType string

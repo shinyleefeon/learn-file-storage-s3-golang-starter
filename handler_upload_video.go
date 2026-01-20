@@ -117,10 +117,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 	fileKey := base64.RawURLEncoding.EncodeToString(key)
 	fileKey += ".mp4"
+	fileKey = aspectRatio + "/" + fileKey
+	/*cdString := fmt.Sprintf("%s,%s",cfg.s3Bucket, fileKey)*/
 
-	c, err := cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
+	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
 		Bucket: aws.String(cfg.s3Bucket),
-		Key:    aws.String(aspectRatio + "/" + fileKey),
+		Key:    aws.String(fileKey),
 		Body:   processedFile,
 		ContentType: aws.String("video/mp4"),
 	})
@@ -128,15 +130,21 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't upload video to S3", err)
 		return
 	}
-	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, aspectRatio + "/" + fileKey)
-	videoMeta.VideoURL = &videoURL
+	/*videoURL := cdString
+	videoMeta.VideoURL = &videoURL*/
+	videoMeta.VideoURL = s3CfURL(cfg.s3CfDistribution, fileKey)
 	err = cfg.db.UpdateVideo(videoMeta)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video metadata", err)
 		return
 	}
 
+	// Convert stored video to include signed URL for response
+	/*signedVideo, err := cfg.dbVideoToSignedVideo(videoMeta)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't generate signed URL", err)
+		return
+	}*/
 
-	fmt.Println("uploaded video to S3", c)
-
+	respondWithJSON(w, http.StatusOK, videoMeta)
 }
