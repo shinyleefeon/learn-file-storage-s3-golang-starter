@@ -67,11 +67,47 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
 
-	io.Copy(tmpFile, file)
-	
-	tmpFile.Seek(0, io.SeekStart)
+	// Copy video data to temp file first
+	_, err = io.Copy(tmpFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't copy video to temp file", err)
+		return
+	}
+
+	// Get aspect ratio from the temp file
+	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get video aspect ratio", err)
+		return
+	}
+
+	if aspectRatio == "16:9" {aspectRatio = "landscape"}
+	if aspectRatio == "9:16" {aspectRatio = "portrait"}
+
+	// Seek back to beginning for upload
+	_, err = tmpFile.Seek(0, io.SeekStart)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't seek temp file", err)
+		return
+	}
+
+
+	processedFilePath, err := processVideoForFastStart(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't process video for fast start", err)
+		return
+	}
+	defer os.Remove(processedFilePath)
+	tmpFile.Close()
+
+	// Open the processed file for uploading
+	processedFile, err := os.Open(processedFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't open processed video file", err)
+		return
+	}
+	defer processedFile.Close()
 
 	key := make([]byte, 32)
 	_, err = rand.Read(key)
@@ -84,15 +120,15 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	c, err := cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
 		Bucket: aws.String(cfg.s3Bucket),
-		Key:    aws.String(fileKey),
-		Body:   tmpFile,
+		Key:    aws.String(aspectRatio + "/" + fileKey),
+		Body:   processedFile,
 		ContentType: aws.String("video/mp4"),
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't upload video to S3", err)
 		return
 	}
-	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, fileKey)
+	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, aspectRatio + "/" + fileKey)
 	videoMeta.VideoURL = &videoURL
 	err = cfg.db.UpdateVideo(videoMeta)
 	if err != nil {
